@@ -1,13 +1,16 @@
 const deb_rewrite = require('debug')('rewrite');
 const deb_query = require('debug')('query');
 const deb_math = require('debug')('math');
+
 const moment = require('moment');
+const resolve = require('url').resolve;
 
 const shift_re = /AS "shift_([0-9]+)_(years|months|weeks|days|hours|minutes|seconds)"/;
 const from = /(time > )([0-9]+)(ms)/;
 const to = /(time < )([0-9]+)(ms)/;
 const from_rel = /(time > )(now\(\) - )([0-9]+)([hd])/;
 const to_rel = /(time < )(now\(\) - )([0-9]+)([hd])/;
+const singlestat = /singlestat/;
 
 const math_re = /^MATH /; 
 const math_name = /name="([0-9a-zA-Z]+)"/;
@@ -75,9 +78,14 @@ function calculate_values(results, math) {
     return [];
 }
 
-function forward(req, res) {
+const reLeadingSlash = /^\//; 
+const reLeadingSemicolon = /^;+/;
+const reEveryVar = /\$[0-9]+/g;
+const reTwoSemicolon = /;;/;
+
+function forward(path, req, res) {
     if ((req.url.indexOf("/query") === 0) && (req.query.q)) {
-        const query = req.query.q.replace(/^;+/, '').replace(/;;/, '');
+        const query = req.query.q.replace(reLeadingSemicolon, '').replace(reTwoSemicolon, '');
         const parts = query.split(';').map(function (q, idx) {
             let match; 
             deb_query(idx, q);
@@ -93,7 +101,8 @@ function forward(req, res) {
                     req.proxyMath[idx] = {
                         name: name_parts[1],
                         expr: expr_parts[1],
-                        vars: expr_parts[1].match(/\$[0-9]+/g),
+                        vars: expr_parts[1].match(reEveryVar),
+                        singlestat: q.match(singlestat),
                         keep: keep_parts ? keep_parts[1].split(',').map(function (idx) {
                             return parseInt(idx.trim().substring(1), 10);
                         }) : []
@@ -129,13 +138,13 @@ function forward(req, res) {
                 queries.push(key + "=" + encodeURIComponent(ret[key]));
             }
         }
-        return "/query?" + queries.join("&"); 
+        return resolve(path, "query") + "?" + queries.join("&"); 
     } else {
-        return req.url;
+        return resolve(path, req.url.replace(reLeadingSlash, ''));
     }
 }
 
-function intercept(rsp, data, req, res, next) {
+function intercept(rsp, data, req, res) {
     if (req.proxyShift || req.proxyMath) {
         const json = JSON.parse(data.toString());
         if (req.proxyMath && json.results) {
@@ -182,7 +191,11 @@ function intercept(rsp, data, req, res, next) {
                         math.vars.forEach(function (item) {
                             const idx = parseInt(item.substr(1), 10);
                             if (math.keep.indexOf(idx) === -1) {
-                                json.results[idx].series[0].values = [];
+                                if (math.singlestat) {
+                                    json.results[idx] = {};
+                                } else {
+                                    json.results[idx].series[0].values = [];
+                                }
                                 deb_math("Clear values for statement:", idx);
                             }
                         });
@@ -193,9 +206,9 @@ function intercept(rsp, data, req, res, next) {
                 result.statement_id = idx;
             });
         }
-        return next(null, JSON.stringify(json));
+        return JSON.stringify(json);
     }
-    return next(null, data);
+    return data;
 }
 
 module.exports = {
