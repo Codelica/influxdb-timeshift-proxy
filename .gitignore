@@ -1,3 +1,4 @@
+process.json
 node_modules
 *.sw?
 *.log
