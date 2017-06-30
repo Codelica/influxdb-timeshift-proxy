@@ -5,11 +5,11 @@ const deb_math = require('debug')('math');
 const moment = require('moment');
 const resolve = require('url').resolve;
 
-const shift_re = /AS "shift_([0-9]+)_(years|months|weeks|days|hours|minutes|seconds)"/;
+const shift_re = /[aA][sS] "shift_([0-9]+)_(years|months|weeks|days|hours|minutes|seconds)"/;
 const from = /(time > )([0-9]+)(ms)/;
 const to = /(time < )([0-9]+)(ms)/;
-const from_rel = /(time > )(now\(\) - )([0-9]+)([hd])/;
-const to_rel = /(time < )(now\(\) - )([0-9]+)([hd])/;
+const from_rel = /(time > )(now\(\) - )([0-9]+)([smhdwMy])/;
+const to_rel = /(time < )(now\(\) - )([0-9]+)([smhdwMy])/;
 const singlestat = /singlestat/;
 
 const math_re = /^MATH /; 
@@ -35,7 +35,7 @@ function fix_query_time_relative(q, reg, count, unit) {
     return q;
 }
 
-function get_result(results, statement, time) {
+function get_result(results, statement, time, math) {
     try {
         const found = results[statement].series[0].values.find(function (item) {
             return item[0] === time;
@@ -44,6 +44,13 @@ function get_result(results, statement, time) {
             return found[1];
         }
     } catch (err) { }
+    // James work-around for math on single result values, where the "time" 
+    // to be matched against is different between the queries.  This is common
+    // with single stat aggregated queries. "math" param was added to this function
+    // signature.
+    if (math.singlestat && results[statement].series[0].values.length == 1) {
+        return results[statement].series[0].values[0][1]
+    }
     return null;
 }
 
@@ -59,7 +66,7 @@ function calculate_values(results, math) {
             base.forEach(function (rec) {
                 const digits = [];
                 indexes.forEach(function (idx) {
-                    digits.push(get_result(results, idx, rec[0]));
+                    digits.push(get_result(results, idx, rec[0], math));
                 });
                 let result = func.apply(this, digits);
                 deb_math(rec[0], digits, result);
@@ -119,10 +126,16 @@ function forward(path, req, res) {
                     count: parseInt(match[1], 10),
                     unit: match[2]
                 };
+                if (! q.includes('time <')) {
+                  let pos = q.search(/ (GROUP BY|FILL) /i);
+                  if (pos > 0) q = q.slice(0,pos) + ' AND time < now() - 0s' + q.slice(pos);
+                  else q += ' AND time < now() - 0s';
+                //   console.log('Q changed to = ', q);
+                }
                 let select = fix_query_time(q, from, parseInt(match[1], 10), match[2]);
                 select = fix_query_time(select, to, parseInt(match[1], 10), match[2]);
                 select = fix_query_time_relative(select, from_rel, parseInt(match[1], 10), match[2]);
-                select = fix_query_time(select, to_rel, parseInt(match[1], 10), match[2]);
+                select = fix_query_time_relative(select, to_rel, parseInt(match[1], 10), match[2]);
                 deb_rewrite("To: " + select);
                 return select;
             } else {
