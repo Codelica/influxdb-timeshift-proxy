@@ -6,10 +6,10 @@ const moment = require('moment');
 const resolve = require('url').resolve;
 
 const shift_re = /[aA][sS] "shift_([0-9]+)_(years|months|weeks|days|hours|minutes|seconds)"/;
-const from = /(time > )([0-9]+)(ms)/;
-const to = /(time < )([0-9]+)(ms)/;
-const from_rel = /(time > )(now\(\) - )([0-9]+)([smhdwMy])/;
-const to_rel = /(time < )(now\(\) - )([0-9]+)([smhdwMy])/;
+const from = /(time >=? )([0-9]+)(ms)/;
+const to = /(time <=? )([0-9]+)(ms)/;
+const from_rel = /(time >=? )(now\(\) - )([0-9]+)([smhdwMy])/;
+const to_rel = /(time <=? )(now\(\) - )([0-9]+)([smhdwMy])/;
 const singlestat = /singlestat/;
 
 const math_re = /^MATH /; 
